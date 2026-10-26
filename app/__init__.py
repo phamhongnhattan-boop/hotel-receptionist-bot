@@ -1,0 +1,1 @@
+"""Hotel receptionist bot package."""
