@@ -71,6 +71,48 @@ def test_rooms_run_out(tools):
     assert not create("Late Guest", "0905123456", ci, co, "family")["ok"]
 
 
+# ---------- Fallback when Gemini is busy ----------
+class FakeChat:
+    def __init__(self, model, fail):
+        self.model, self.fail = model, fail
+
+    def send_message(self, prompt):
+        if self.fail:
+            from google.genai import errors
+            raise errors.ServerError(503, {"error": {"code": 503, "message": "busy", "status": "UNAVAILABLE"}})
+        return type("Resp", (), {"text": f"answer from {self.model}"})()
+
+    def get_history(self, curated=False):
+        return []
+
+
+class FakeClient:
+    def __init__(self, busy_models):
+        self.busy = set(busy_models)
+        self.chats = self
+
+    def create(self, model, history=None, config=None):
+        return FakeChat(model, model in self.busy)
+
+
+def test_switches_to_fallback_model_when_busy():
+    from app.agent import ReceptionistAgent
+    r = Retriever(load_chunks(config.KB_DIR), fake_embed)
+    agent = ReceptionistAgent(FakeClient({"main"}), r, tools=[], model="main", fallback_model="lite")
+    out = agent.reply("s1", "check-in time?")
+    assert out["model"] == "lite" and out["reply"] == "answer from lite"
+    assert agent.reply("s1", "thanks")["model"] == "lite"  # session stays on the fallback
+
+
+def test_raises_when_both_models_busy():
+    from google.genai import errors
+    from app.agent import ReceptionistAgent
+    r = Retriever(load_chunks(config.KB_DIR), fake_embed)
+    agent = ReceptionistAgent(FakeClient({"main", "lite"}), r, tools=[], model="main", fallback_model="lite")
+    with pytest.raises(errors.ServerError):
+        agent.reply("s1", "hello")
+
+
 # ---------- API ----------
 class FakeAgent:
     def reply(self, session_id, message):

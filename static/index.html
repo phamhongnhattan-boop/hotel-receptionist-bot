@@ -16,6 +16,7 @@
   .bot { background:var(--bot); box-shadow:0 1px 2px #0001; }
   .me { background:var(--me); margin-left:auto; }
   .src { font-size:11px; color:#667; margin-top:6px; }
+  .typing { color:#667; font-style:italic; }
   form { display:flex; gap:8px; padding:12px 16px; max-width:760px; width:100%; margin:0 auto; }
   input { flex:1; padding:12px; border:1px solid #ccd; border-radius:10px; font-size:15px; }
   form button { background:var(--brand); color:#fff; border:0; border-radius:10px; padding:0 18px; font-size:15px; cursor:pointer; }
@@ -39,10 +40,19 @@
   const sendBtn = document.getElementById("send");
   let sessionId = crypto.randomUUID();
 
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+  }
+
+  // Safe mini-Markdown: escape all HTML first, then turn **text** into bold
+  function render(text) {
+    return escapeHtml(text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  }
+
   function add(text, who, sources) {
     const div = document.createElement("div");
     div.className = "msg " + who;
-    div.textContent = text;
+    if (who === "bot") div.innerHTML = render(text); else div.textContent = text;
     if (sources && sources.length) {
       const s = document.createElement("div");
       s.className = "src";
@@ -62,6 +72,11 @@
     add(message, "me");
     input.value = "";
     sendBtn.disabled = true;
+    const typing = document.createElement("div");
+    typing.className = "msg bot typing";
+    typing.textContent = "Đang trả lời... / Typing...";
+    log.appendChild(typing);
+    log.scrollTop = log.scrollHeight;
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -69,9 +84,11 @@
         body: JSON.stringify({ session_id: sessionId, message }),
       });
       const data = await res.json();
+      typing.remove();
       if (!res.ok) throw new Error(data.detail || "Error");
       add(data.reply, "bot", data.sources);
     } catch (err) {
+      typing.remove();
       add("Xin lỗi, hệ thống đang bận. Vui lòng thử lại.", "bot");
     } finally {
       sendBtn.disabled = false;

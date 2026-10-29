@@ -18,8 +18,10 @@ USE_VERTEX = os.getenv("USE_VERTEX", "false").lower() == "true"
 GCP_PROJECT = os.getenv("GCP_PROJECT")
 GCP_LOCATION = os.getenv("GCP_LOCATION", "asia-southeast1")
 
-# Check the current model names in the Gemini docs before you start
-CHAT_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+# "-latest" aliases always point to the newest model of that family
+CHAT_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+# Used when the main model is overloaded (503) or rate-limited (429) even after retries
+FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-flash-lite-latest")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "gemini-embedding-001")
 
 TOP_K = int(os.getenv("TOP_K", "3"))
