@@ -1,0 +1,31 @@
+﻿category,question,pass,model,reply
+facts_vi,Mấy giờ được nhận phòng?,True,gemini-flash-lite-latest,Giờ nhận phòng (check-in) tại khách sạn là từ 14:00 bạn nhé!
+facts_vi,Trả phòng trước mấy giờ?,True,gemini-flash-lite-latest,Thời gian trả phòng là trước 12:00 bạn nhé!
+facts_vi,Bữa sáng phục vụ từ mấy giờ?,True,gemini-flash-lite-latest,Bữa sáng buffet được phục vụ từ 6:30 đến 10:00 tại nhà hàng tầng 1 bạn nhé!
+facts_vi,Phòng Standard có bao gồm bữa sáng không?,True,gemini-flash-lite-latest,"Chào bạn, phòng Standard chưa bao gồm bữa sáng. Giá mua thêm bữa sáng buffet là **150.000 VND/người**.   Bạn có muốn đặt phòng hoặc cần kiểm tra giá phòng cho ngày nào không ạ?"
+facts_vi,Đưa đón sân bay bằng xe 7 chỗ giá bao nhiêu?,True,gemini-flash-lite-latest,"Dạ, dịch vụ xe đưa đón sân bay Đà Nẵng bằng xe 7 chỗ có giá **350.000 VND/chiều**. Quý khách vui lòng đặt trước ít nhất 6 tiếng nhé ạ!"
+facts_vi,Hủy phòng có mất phí không?,True,gemini-flash-lite-latest,"Dạ, chính sách hủy phòng của khách sạn là: quý khách được hủy miễn phí trước 48 giờ so với giờ nhận phòng. Nếu hủy trong vòng 48 giờ hoặc không đến, khách sạn sẽ tính phí 100% đêm đầu tiên ạ."
+facts_vi,Trẻ em 4 tuổi có phải trả tiền không?,True,gemini-flash-lite-latest,"Dạ, trẻ em dưới 6 tuổi ở miễn phí khi dùng chung giường với bố mẹ ạ!"
+facts_vi,Giường phụ giá bao nhiêu một đêm?,True,gemini-flash-lite-latest,"Giường phụ có giá **300.000 VND/đêm**, đã bao gồm bữa sáng. Quý khách có cần hỗ trợ thêm thông tin gì không ạ?"
+facts_vi,Gửi xe ô tô có mất phí không?,True,gemini-flash-lite-latest,"Chào bạn, gửi xe ô tô có phí là **50.000 VND/đêm** (ô tô sẽ đỗ ở bãi bên cạnh khách sạn). Bạn cần hỗ trợ thêm thông tin gì không ạ?"
+facts_vi,Khách sạn cách biển bao xa?,True,gemini-flash-lite-latest,Khách sạn cách biển Mỹ Khê chỉ khoảng **200 m** thôi ạ!
+facts_vi,Tôi có thể trả bằng đô la Mỹ không?,True,gemini-flash-lite-latest,"Dạ không ạ, khách sạn không chấp nhận thanh toán bằng tiền ngoại tệ tại quầy. Anh/chị có thể thanh toán bằng tiền mặt (VND), thẻ Visa/Mastercard hoặc chuyển khoản nhé!"
+facts_vi,Nhận phòng cần mang giấy tờ gì?,True,gemini-flash-lite-latest,"Dạ, khi nhận phòng, quý khách cần xuất trình CCCD hoặc hộ chiếu ạ."
+facts_en,What time is check-out?,True,gemini-flash-lite-latest,Check-out time is before 12:00. Let me know if you need anything else!
+facts_en,Do you have a swimming pool?,True,gemini-flash-lite-latest,"Yes, we do! We have an outdoor rooftop swimming pool open from 6:00 to 21:00. Would you like to know anything else or check room availability?"
+facts_en,Is the gym open at night?,True,gemini-flash-lite-latest,"Yes! The gym is open 24/7, so you can use it at night. Let me know if you need anything else!"
+facts_en,Can I bring my dog?,True,gemini-flash-lite-latest,"I'm sorry, but pets are not allowed at Son Tra Demo Hotel."
+facts_en,Is Wi-Fi free?,True,gemini-flash-lite-latest,"Yes, Wi-Fi is completely free throughout the hotel!"
+facts_en,How far is the airport?,True,gemini-flash-lite-latest,"The hotel is about 6 km from Da Nang Airport, which is roughly a 15-minute drive."
+facts_en,How far is Hoi An from the hotel?,True,gemini-flash-lite-latest,"Hoi An ancient town is about 30 km away from the hotel, which takes around 45 minutes to get there. Is there anything else I can help you with?"
+facts_en,What is the fine for smoking in the room?,True,gemini-flash-lite-latest,"The fine for smoking in the room is **1,000,000 VND** for a cleaning fee."
+price_tool,Giá phòng Standard 1 đêm từ 10/12 đến 11/12 là bao nhiêu?,True,gemini-flash-lite-latest,Giá phòng Standard cho 1 đêm từ 10/12/2026 đến 11/12/2026 là **900.000 VND**.   Bạn có muốn đặt phòng này luôn không ạ?
+price_tool,How much is a Deluxe room from December 5 to December 8?,True,gemini-flash-lite-latest,"A Deluxe room from December 5 to December 8 (3 nights) is available. The total price is **4,200,000 VND** (1,400,000 VND per night). This already includes breakfast! Let me know if you would like to book it."
+price_tool,Phòng Family 2 đêm từ 15/12 đến 17/12 hết bao nhiêu tiền?,True,gemini-flash-lite-latest,Phòng Family cho 2 đêm từ 15/12/2026 đến 17/12/2026 hiện còn phòng. Tổng giá phòng là **4.200.000 VND** (2.100.000 VND/đêm).   Bạn có muốn đặt phòng này luôn không ạ?
+price_tool,Deluxe room price per night on December 20?,True,gemini-flash-lite-latest,"The price for a Deluxe room on December 20, 2026, is **1,400,000 VND** per night. This room includes a sea-view balcony and buffet breakfast for up to 2 adults and 1 child!"
+out_of_kb,Khách sạn có spa không?,True,gemini-flash-lite-latest,"Chào bạn, hiện tại tôi không có thông tin về dịch vụ spa trong hệ thống. Tôi không chắc chắn khách sạn có dịch vụ này hay không, bạn có thể liên hệ trực tiếp với nhân viên qua hotline 0236 000 0000 để được hỗ trợ chi tiết nhé!"
+out_of_kb,Có phòng karaoke không?,True,gemini-flash-lite-latest,"Dạ, về phòng karaoke thì em không thấy thông tin trong hệ thống, em chưa chắc chắn lắm ạ. Anh/chị có cần em kết nối với nhân viên lễ tân qua hotline 0236 000 0000 để được hỗ trợ chi tiết hơn không ạ?"
+out_of_kb,What's on the dinner menu tonight?,True,gemini-flash-lite-latest,I am not sure about the dinner menu tonight. Please feel free to contact our front desk hotline at 0236 000 0000 for more details!
+out_of_kb,Do you offer a shuttle to Ba Na Hills?,True,gemini-flash-lite-latest,I am not sure if we offer a shuttle to Ba Na Hills. Please feel free to contact our staff directly at our hotline 0236 000 0000 for assistance!
+language,Phòng Deluxe có ban công không?,True,gemini-flash-lite-latest,"Có ạ, phòng Deluxe rộng 32 m², có 1 giường king và ban công hướng biển, tối đa 2 người lớn và 1 trẻ em."
+language,Does the Family room have a bathtub?,True,gemini-flash-lite-latest,"Yes, the Family room has a bathtub!"

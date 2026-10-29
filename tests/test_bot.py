@@ -130,3 +130,19 @@ def test_chat_endpoint():
         r = client.post("/api/chat", json={"session_id": "s1", "message": "xin chào"})
         assert r.status_code == 200 and r.json()["reply"] == "echo: xin chào"
         assert client.post("/api/chat", json={"session_id": "s1", "message": ""}).status_code == 422
+
+
+# ---------- Eval keyword matching ----------
+def test_eval_matches_numbers_with_any_separator():
+    from scripts.eval_questions import passes
+    assert passes("Phí đưa đón là 250.000 VND", ["250000"])
+    assert passes("Total: **4,200,000 VND**", ["4200000"])
+    assert not passes("Giá 1.500.000 VND", ["150000"])  # no match inside a bigger number
+
+
+def test_eval_rejects_invented_negative_answer():
+    from scripts.eval_questions import INVENTED_NO_VI, NOT_SURE_VI, passes
+    invented = "Dạ, khách sạn không có dịch vụ spa ạ. Em không chắc về các dịch vụ khác."
+    honest = "Dạ, em không chắc khách sạn có spa không, anh/chị gọi hotline 0236 000 0000 nhé."
+    assert not passes(invented, NOT_SURE_VI, INVENTED_NO_VI)
+    assert passes(honest, NOT_SURE_VI, INVENTED_NO_VI)
