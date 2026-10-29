@@ -1,20 +1,10 @@
----
-title: Hotel Receptionist Bot
-emoji: 🏨
-colorFrom: green
-colorTo: blue
-sdk: docker
-app_port: 8080
-pinned: false
----
-
 # AI Hotel Receptionist (Vietnamese + English)
 
 A chatbot that answers hotel questions and takes room bookings, built with Gemini (RAG + function calling) and FastAPI.
 
 > Demo hotel: "Son Tra Demo Hotel" is a made-up hotel. All hotel data is sample data.
 
-**Live demo:** _add your Hugging Face Space URL here_
+**Live demo:** _add your Render URL here_ (free tier: the app sleeps after 15 min idle, the first request can take ~1 min)
 
 ## What it does
 
@@ -70,8 +60,9 @@ python -m scripts.eval_questions          # 30-question evaluation (uses the API
 
 ## Deploy
 
-The repo is ready for **Hugging Face Spaces (Docker)**: the YAML header above tells the Space to build the
-`Dockerfile` and serve port 8080. Add `GEMINI_API_KEY` as a secret in the Space settings.
+**Render (free, no card):** New → Web Service → connect this GitHub repo → Runtime **Docker** →
+Instance type **Free** → add the environment variable `GEMINI_API_KEY` → Deploy.
+Render sets `$PORT`, which the `Dockerfile` already uses.
 
 The same `Dockerfile` also runs on **Google Cloud Run**:
 
