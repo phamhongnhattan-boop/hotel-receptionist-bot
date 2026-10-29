@@ -38,12 +38,12 @@ class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=1000)
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])  # Render health checks use HEAD
 def index():
     return FileResponse(config.STATIC_DIR / "index.html")
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok"}
 

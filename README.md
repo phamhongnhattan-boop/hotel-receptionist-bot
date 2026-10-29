@@ -4,14 +4,15 @@ A chatbot that answers hotel questions and takes room bookings, built with Gemin
 
 > Demo hotel: "Son Tra Demo Hotel" is a made-up hotel. All hotel data is sample data.
 
-**Live demo:** _add your Render URL here_ (free tier: the app sleeps after 15 min idle, the first request can take ~1 min)
+**Live demo:** https://hotel-receptionist-bot.onrender.com
+(free tier: the app sleeps after 15 min idle, so the first request can take ~1 min)
 
 ## What it does
 
 - Answers questions about check-in time, breakfast, pool, airport transfer, cancellation… in the guest's language (Vietnamese or English).
 - Only answers from the hotel knowledge base (RAG). If the answer is not there, it says it is not sure and gives the hotline instead of inventing an answer.
 - Checks free rooms and prices, repeats the details, and creates a booking only after the guest confirms (Gemini function calling → SQLite).
-- Stays up when Gemini is overloaded: retries with backoff on 429/5xx, then switches to a lighter fallback model and keeps the conversation.
+- Stays up when Gemini is overloaded: retries with backoff on 429/5xx, then switches to a fallback model and keeps the conversation.
 
 ## Architecture
 
@@ -23,7 +24,7 @@ FastAPI
       ├── Retriever: gemini-embedding-001 + cosine search over knowledge_base/*.md
       └── Gemini chat (system prompt + retrieved context)
               ├── tools: check_availability(), create_booking()  →  SQLite
-              └── retry 429/5xx → fallback model (gemini-flash-lite-latest)
+              └── main: gemini-flash-lite-latest · retry 429/5xx → fallback: gemini-flash-latest
 ```
 
 ## Evaluation
@@ -43,6 +44,8 @@ FastAPI
 What the evaluation found and fixed:
 - The bot answered an English question in Vietnamese (the knowledge base is Vietnamese) → the prompt now forces the language of the guest message.
 - For "Do you have a spa?" the bot said "we don't have a spa", which is not in the data → the prompt forbids yes/no claims on unknown topics, and the grader now fails such answers.
+
+All 30 answers were produced by `gemini-flash-lite-latest`, so the fast lite model is the default.
 
 Limits: keyword grading is simple and LLM replies change between runs; an LLM-as-judge grader would be the next step.
 

@@ -18,10 +18,11 @@ USE_VERTEX = os.getenv("USE_VERTEX", "false").lower() == "true"
 GCP_PROJECT = os.getenv("GCP_PROJECT")
 GCP_LOCATION = os.getenv("GCP_LOCATION", "asia-southeast1")
 
-# "-latest" aliases always point to the newest model of that family
-CHAT_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+# "-latest" aliases always point to the newest model of that family.
+# Lite is the default: fast, and it scored 30/30 on the evaluation set.
+CHAT_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
 # Used when the main model is overloaded (503) or rate-limited (429) even after retries
-FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-flash-lite-latest")
+FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-flash-latest")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "gemini-embedding-001")
 
 TOP_K = int(os.getenv("TOP_K", "3"))

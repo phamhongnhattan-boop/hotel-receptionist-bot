@@ -146,3 +146,11 @@ def test_eval_rejects_invented_negative_answer():
     honest = "Dạ, em không chắc khách sạn có spa không, anh/chị gọi hotline 0236 000 0000 nhé."
     assert not passes(invented, NOT_SURE_VI, INVENTED_NO_VI)
     assert passes(honest, NOT_SURE_VI, INVENTED_NO_VI)
+
+
+def test_head_requests_for_health_checks():
+    from app.main import app, state
+    state["agent"] = FakeAgent()
+    with TestClient(app) as client:
+        assert client.head("/").status_code == 200
+        assert client.head("/health").status_code == 200
