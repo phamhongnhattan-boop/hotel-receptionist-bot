@@ -38,7 +38,7 @@
   const form = document.getElementById("form");
   const input = document.getElementById("text");
   const sendBtn = document.getElementById("send");
-  let sessionId = crypto.randomUUID();
+  let sessionId = null;  // the server creates it on the first message
 
   function escapeHtml(s) {
     return s.replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
@@ -85,7 +85,9 @@
       });
       const data = await res.json();
       typing.remove();
+      if (res.status === 429) { add("Bạn gửi hơi nhanh, vui lòng đợi một chút. / Too many messages, please wait.", "bot"); return; }
       if (!res.ok) throw new Error(data.detail || "Error");
+      sessionId = data.session_id;
       add(data.reply, "bot", data.sources);
     } catch (err) {
       typing.remove();
@@ -97,8 +99,14 @@
   });
 
   document.getElementById("reset").addEventListener("click", async () => {
-    await fetch("/api/reset/" + sessionId, { method: "POST" });
-    sessionId = crypto.randomUUID();
+    if (sessionId) {
+      await fetch("/api/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+    }
+    sessionId = null;
     log.innerHTML = "";
     add("Đã bắt đầu cuộc trò chuyện mới. / New conversation started.", "bot");
   });

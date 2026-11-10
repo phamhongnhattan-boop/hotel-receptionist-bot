@@ -27,3 +27,19 @@ EMBED_MODEL = os.getenv("EMBED_MODEL", "gemini-embedding-001")
 
 TOP_K = int(os.getenv("TOP_K", "3"))
 HOTEL_NAME = os.getenv("HOTEL_NAME", "Son Tra Demo Hotel")
+
+# ---------- Security (public demo) ----------
+# Messages per client IP per minute, and total chat messages per day (protects the API budget)
+RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "10"))
+DAILY_MESSAGE_LIMIT = int(os.getenv("DAILY_MESSAGE_LIMIT", "500"))
+# Number of reverse proxies in front of the app (Render / Cloud Run: 1). 0 = no proxy.
+PROXY_HOPS = int(os.getenv("PROXY_HOPS", "1"))
+# Chat sessions kept in memory: max count and idle timeout
+MAX_SESSIONS = int(os.getenv("MAX_SESSIONS", "500"))
+SESSION_TTL_MINUTES = int(os.getenv("SESSION_TTL_MINUTES", "30"))
+# Max bookings one chat session can create (stops scripts from filling all rooms)
+MAX_BOOKINGS_PER_SESSION = int(os.getenv("MAX_BOOKINGS_PER_SESSION", "2"))
+# Bookings only up to this many days ahead
+MAX_DAYS_AHEAD = int(os.getenv("MAX_DAYS_AHEAD", "365"))
+# FastAPI /docs page: off on the public demo, turn on for local development
+ENABLE_DOCS = os.getenv("ENABLE_DOCS", "false").lower() == "true"

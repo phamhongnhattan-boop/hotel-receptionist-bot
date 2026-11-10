@@ -2,6 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
     DB_PATH=/tmp/hotel.db
 
 COPY requirements.txt .
@@ -11,5 +12,9 @@ COPY app ./app
 COPY knowledge_base ./knowledge_base
 COPY static ./static
 
-# Cloud Run sets $PORT (default 8080)
-CMD exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}
+# Run as a normal user, not root: if the app is ever hacked, the attacker has fewer rights
+RUN useradd --create-home --uid 10001 appuser
+USER appuser
+
+# Cloud Run / Render set $PORT (default 8080)
+CMD exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --no-server-header

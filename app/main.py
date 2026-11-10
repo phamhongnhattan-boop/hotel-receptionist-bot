@@ -1,15 +1,24 @@
 """FastAPI app.  Local:  uvicorn app.main:app --reload"""
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app import config
+from app.security import RateLimiter, client_ip, is_valid_session_id, new_session_id
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+log = logging.getLogger("app")
 
 state: dict = {}
+
+# One user: a few messages per minute. Everyone together: a daily cap on Gemini calls.
+per_ip_limiter = RateLimiter(config.RATE_LIMIT_PER_MINUTE, window=60)
+daily_limiter = RateLimiter(config.DAILY_MESSAGE_LIMIT, window=24 * 3600)
 
 
 def build_agent():
@@ -30,12 +39,42 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Hotel Receptionist Bot", lifespan=lifespan)
+# /docs, /redoc and /openapi.json show every endpoint: useful locally, not on the public demo
+docs = {} if config.ENABLE_DOCS else {"docs_url": None, "redoc_url": None, "openapi_url": None}
+app = FastAPI(title="Hotel Receptionist Bot", lifespan=lifespan, **docs)
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",           # browser must not guess file types
+    "X-Frame-Options": "DENY",                     # page cannot be put in an iframe (clickjacking)
+    "Referrer-Policy": "no-referrer",
+    # Only load scripts/styles from this page itself; no outside domains
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+                               "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+                               "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",
+}
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
 
 
 class ChatIn(BaseModel):
-    session_id: str = Field(min_length=1, max_length=64)
+    # Empty on the first message: the server then creates a new session and returns its id
+    session_id: str | None = Field(default=None, max_length=64)
     message: str = Field(min_length=1, max_length=1000)
+
+
+class ResetIn(BaseModel):
+    session_id: str = Field(min_length=1, max_length=64)
+
+
+def too_many(retry_after: float, detail: str) -> JSONResponse:
+    return JSONResponse(status_code=429, content={"detail": detail},
+                        headers={"Retry-After": str(int(retry_after) + 1)})
 
 
 @app.api_route("/", methods=["GET", "HEAD"])  # Render health checks use HEAD
@@ -49,15 +88,33 @@ def health():
 
 
 @app.post("/api/chat")
-def chat(body: ChatIn):
+def chat(body: ChatIn, request: Request):
+    ip = client_ip(request.headers, request.client.host if request.client else None, config.PROXY_HOPS)
+    wait = per_ip_limiter.check(ip)
+    if wait:
+        return too_many(wait, "Too many messages. Please wait a moment.")
+    wait = daily_limiter.check("all")
+    if wait:
+        log.warning("daily message limit reached")
+        return too_many(wait, "The demo has reached its daily limit. Please try again tomorrow.")
+
+    agent = state["agent"]
+    # Only the server creates session ids. An unknown or badly formed id (expired, or made up
+    # by the client) starts a new session, so nobody can join another guest's conversation.
+    session_id = body.session_id
+    if not (is_valid_session_id(session_id) and agent.has_session(session_id)):
+        session_id = new_session_id()
+
     try:
-        return state["agent"].reply(body.session_id, body.message)
+        result = agent.reply(session_id, body.message)
     except Exception as e:  # show a clean error to the UI, keep details in logs
-        print(f"[chat error] {e!r}")
+        log.error("chat error: %r", e)
         raise HTTPException(status_code=502, detail="Bot is busy, please try again.")
+    return {**result, "session_id": session_id}
 
 
-@app.post("/api/reset/{session_id}")
-def reset(session_id: str):
-    state["agent"].reset(session_id)
+@app.post("/api/reset")
+def reset(body: ResetIn):
+    if is_valid_session_id(body.session_id):
+        state["agent"].reset(body.session_id)
     return {"ok": True}
