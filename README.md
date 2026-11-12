@@ -1,5 +1,7 @@
 # AI Hotel Receptionist (Vietnamese + English)
 
+[![CI](https://github.com/phamhongnhattan-boop/hotel-receptionist-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/phamhongnhattan-boop/hotel-receptionist-bot/actions/workflows/ci.yml)
+
 A chatbot that answers hotel questions and takes room bookings, built with Gemini (RAG + function calling) and FastAPI.
 
 > Demo hotel: "Son Tra Demo Hotel" is a made-up hotel. All hotel data is sample data.
@@ -67,7 +69,9 @@ All checks have offline tests in `tests/test_bot.py`.
 | Info leaks | `/docs` lists every endpoint; error details shown to users | `/docs` off by default (`ENABLE_DOCS`); users see a generic error, details go to logs |
 | Browser attacks | Clickjacking, loading outside scripts | Headers: `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` |
 | Secrets | API key pushed to GitHub | `.env` is in `.gitignore` and `.dockerignore`; on Render/Cloud Run the key is an env var / Secret Manager secret |
-| Container | App runs as root | Docker image runs as a normal user (`appuser`) |
+| Container | App runs as root | Docker image runs as a normal user (`appuser`); CI checks the user id |
+| Library holes / surprise updates | A new release breaks the live demo, or an old one has a known CVE | Exact versions in `requirements.txt`; CI runs `pip-audit` every push and every Monday |
+| Key pushed by mistake | Someone commits a key later | CI scans the whole git history with `gitleaks` |
 
 Not done yet (needs paid services or more instances): Redis for shared rate limits and sessions, a CAPTCHA,
 login for staff pages, and encrypting guest data in the database.
@@ -77,12 +81,23 @@ login for staff pages, and encrypting guest data in the database.
 ```bash
 python -m venv .venv
 .venv\Scripts\activate             # Windows
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # app + test tools
 copy .env.example .env             # then add your GEMINI_API_KEY
 python -m uvicorn app.main:app --reload   # open http://127.0.0.1:8000
 python -m pytest -q                       # 22 offline tests, no API key needed
 python -m scripts.eval_questions          # 30-question evaluation (uses the API)
 ```
+
+## Tests and CI
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push, on pull requests and every Monday:
+
+| Job | What it checks |
+|---|---|
+| Tests (Python 3.11 and 3.13) | 22 offline tests with a fake Gemini client (no API key); a deprecation warning counts as an error |
+| Eval grading | Re-grades the 30 saved replies; fails if the grading rules no longer give 30/30 |
+| Docker | The image builds and runs as user 10001, not root |
+| Security | `gitleaks` on the whole git history, `pip-audit` on the pinned versions |
 
 ## Deploy
 

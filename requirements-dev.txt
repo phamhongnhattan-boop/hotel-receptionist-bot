@@ -1,0 +1,4 @@
+# Tests (not installed in the Docker image)
+-r requirements.txt
+pytest==9.2.0
+httpx2==2.16.0   # test client for FastAPI (Starlette now asks for httpx2, not httpx)

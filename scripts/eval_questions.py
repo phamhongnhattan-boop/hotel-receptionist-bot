@@ -3,6 +3,7 @@
     python -m scripts.eval_questions              # all 30 questions (~3-4 minutes)
     python -m scripts.eval_questions --delay 10   # slower, if you hit rate limits (429)
     python -m scripts.eval_questions --rescore    # re-grade saved replies, no API calls
+    python -m scripts.eval_questions --rescore --no-save --fail-under 1.0   # CI check
 
 A reply PASSES if it contains ANY of the expected keywords (case-insensitive)
 and NONE of the forbidden keywords (used to catch invented "we don't have X" answers).
@@ -14,6 +15,7 @@ from __future__ import annotations
 import argparse
 import csv
 import re
+import sys
 import time
 import uuid
 from collections import defaultdict
@@ -88,7 +90,7 @@ def passes(reply: str, keywords: list[str], forbidden: list[str] | None = None) 
     return False
 
 
-def report(rows: list[dict]) -> None:
+def report(rows: list[dict]) -> float:
     by_cat = defaultdict(lambda: [0, 0])
     for r in rows:
         by_cat[r["category"]][0] += r["pass"]
@@ -98,12 +100,16 @@ def report(rows: list[dict]) -> None:
     for cat, (p, n) in by_cat.items():
         print(f"  {cat:<11} {p}/{n}")
     print(f"\nPass rate: {total}/{len(rows)} = {total / len(rows):.0%}")
+    return total / len(rows)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--delay", type=float, default=6.0, help="seconds between questions (free tier rate limit)")
     parser.add_argument("--rescore", action="store_true", help="re-grade the saved replies without calling Gemini")
+    parser.add_argument("--fail-under", type=float, default=0.0,
+                        help="exit with an error if the pass rate is below this (0-1), used by CI")
+    parser.add_argument("--no-save", action="store_true", help="do not overwrite reports/eval_results.csv")
     args = parser.parse_args()
     out_path = Path(__file__).resolve().parents[1] / "reports" / "eval_results.csv"
     rules = {q: (kw, rest[0] if rest else None) for _, q, kw, *rest in CASES}
@@ -134,13 +140,17 @@ def main():
             if i < len(CASES):
                 time.sleep(args.delay)
 
-    report(rows)
+    rate = report(rows)
+    if args.no_save:
+        sys.exit(1 if rate < args.fail_under else 0)
     out_path.parent.mkdir(exist_ok=True)
     with open(out_path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=["category", "question", "pass", "model", "reply"])
         writer.writeheader()
         writer.writerows(rows)
     print(f"Saved {out_path}")
+    if rate < args.fail_under:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
