@@ -24,6 +24,8 @@ CHAT_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
 # Used when the main model is overloaded (503) or rate-limited (429) even after retries
 FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-flash-latest")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "gemini-embedding-001")
+# Gemini "thinking" before answering: slower. 0 = off. Empty = model default.
+THINKING_BUDGET = int(os.environ["THINKING_BUDGET"]) if os.getenv("THINKING_BUDGET") else None
 
 TOP_K = int(os.getenv("TOP_K", "3"))
 HOTEL_NAME = os.getenv("HOTEL_NAME", "Son Tra Demo Hotel")
@@ -39,7 +41,11 @@ MAX_SESSIONS = int(os.getenv("MAX_SESSIONS", "500"))
 SESSION_TTL_MINUTES = int(os.getenv("SESSION_TTL_MINUTES", "30"))
 # Max bookings one chat session can create (stops scripts from filling all rooms)
 MAX_BOOKINGS_PER_SESSION = int(os.getenv("MAX_BOOKINGS_PER_SESSION", "2"))
+# Wrong booking code / phone tries per chat before lookup and cancel are blocked (stops guessing)
+MAX_FAILED_LOOKUPS = int(os.getenv("MAX_FAILED_LOOKUPS", "3"))
 # Bookings only up to this many days ahead
 MAX_DAYS_AHEAD = int(os.getenv("MAX_DAYS_AHEAD", "365"))
+# /api/stats needs "Authorization: Bearer <STATS_TOKEN>". Not set = the endpoint does not exist (404).
+STATS_TOKEN = os.getenv("STATS_TOKEN")
 # FastAPI /docs page: off on the public demo, turn on for local development
 ENABLE_DOCS = os.getenv("ENABLE_DOCS", "false").lower() == "true"

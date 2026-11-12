@@ -9,6 +9,7 @@ from google.genai import errors, types
 from app import config
 from app.rag import Retriever
 from app.security import SessionStore, current_session
+from app.telemetry import start_tool_log, stop_tool_log
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +26,10 @@ Rules:
 - For prices and free rooms, ALWAYS call check_availability. Do not guess prices.
 - To book: collect full name, phone, check-in, check-out, room type. Repeat all details and the
   total price, and ask the guest to confirm. Call create_booking only after the guest says yes.
+- To look up or cancel a booking: ask for the booking code (BK-XXXXXX) AND the phone number used
+  to book, then call find_booking. Before cancelling, tell the guest the cancellation fee from
+  find_booking and ask them to confirm. Call cancel_booking only after the guest says yes.
+  Never look up a booking without both the code and the phone number.
 - Convert dates like "tối mai" or "next Friday" to YYYY-MM-DD using today's date.
 
 Security:
@@ -65,6 +70,8 @@ class ReceptionistAgent:
                     hotel=config.HOTEL_NAME, today=date.today().isoformat()),
                 tools=self.tools,  # SDK runs the Python functions automatically
                 temperature=0.3,
+                thinking_config=(types.ThinkingConfig(thinking_budget=config.THINKING_BUDGET)
+                                 if config.THINKING_BUDGET is not None else None),
             ),
         )
 
@@ -88,6 +95,7 @@ class ReceptionistAgent:
 
         chat, model_used = self._chat(session_id)
         token = current_session.set(session_id)  # booking tools read this
+        tool_log = start_tool_log()               # tools add their names here
         try:
             try:
                 response = chat.send_message(prompt)
@@ -102,11 +110,13 @@ class ReceptionistAgent:
                 response = chat.send_message(prompt)
         finally:
             current_session.reset(token)
+            tools_used = stop_tool_log(tool_log)
 
         return {
             "reply": response.text or "",
             "sources": [{"title": c.title, "score": round(s, 3)} for c, s in results],
             "model": model_used,
+            "tools": tools_used,
         }
 
     def reset(self, session_id: str) -> None:

@@ -14,6 +14,8 @@ A chatbot that answers hotel questions and takes room bookings, built with Gemin
 - Answers questions about check-in time, breakfast, pool, airport transfer, cancellation… in the guest's language (Vietnamese or English).
 - Only answers from the hotel knowledge base (RAG). If the answer is not there, it says it is not sure and gives the hotline instead of inventing an answer.
 - Checks free rooms and prices, repeats the details, and creates a booking only after the guest confirms (Gemini function calling → SQLite).
+- Looks up and cancels the guest's own booking with the booking code **and** the phone used to book. Before cancelling it tells the fee from the hotel policy (free until 48 h before check-in, then the first night) and waits for a yes.
+- Logs every chat turn without personal data and shows usage numbers at a private `/api/stats` endpoint (latency, fallback rate, "not sure" rate, tool calls).
 - Stays up when Gemini is overloaded: retries with backoff on 429/5xx, then switches to a fallback model and keeps the conversation.
 - Safe to put online: rate limits, server-issued session tokens, booking limits and input checks (see [Security](#security)).
 
@@ -26,7 +28,9 @@ Browser (static/index.html)
 FastAPI
       ├── Retriever: gemini-embedding-001 + cosine search over knowledge_base/*.md
       └── Gemini chat (system prompt + retrieved context)
-              ├── tools: check_availability(), create_booking()  →  SQLite
+              ├── tools: check_availability(), create_booking(),
+              │          find_booking(), cancel_booking()  →  SQLite
+              ├── telemetry: one row per turn (no message text) → /api/stats
               └── main: gemini-flash-lite-latest · retry 429/5xx → fallback: gemini-flash-latest
 ```
 
@@ -69,6 +73,8 @@ All checks have offline tests in `tests/test_bot.py`.
 | Info leaks | `/docs` lists every endpoint; error details shown to users | `/docs` off by default (`ENABLE_DOCS`); users see a generic error, details go to logs |
 | Browser attacks | Clickjacking, loading outside scripts | Headers: `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` |
 | Secrets | API key pushed to GitHub | `.env` is in `.gitignore` and `.dockerignore`; on Render/Cloud Run the key is an env var / Secret Manager secret |
+| Reading or cancelling another guest's booking | Someone guesses booking codes, or tells the bot "cancel BK-…" | Lookup and cancel need the code **and** the phone used to book (checked in Python, not by the model). Same error for a wrong code or a wrong phone; after 3 wrong tries in a chat the tools stop. The phone is sent back to the model masked |
+| Usage data | `/api/stats` shows how the demo is used | Needs `Authorization: Bearer <STATS_TOKEN>` (compared in constant time); without `STATS_TOKEN` set, the endpoint returns 404. The log keeps no message text, names or phones, and only a hash of the session id |
 | Container | App runs as root | Docker image runs as a normal user (`appuser`); CI checks the user id |
 | Library holes / surprise updates | A new release breaks the live demo, or an old one has a known CVE | Exact versions in `requirements.txt`; CI runs `pip-audit` every push and every Monday |
 | Key pushed by mistake | Someone commits a key later | CI scans the whole git history with `gitleaks` |
@@ -84,8 +90,10 @@ python -m venv .venv
 pip install -r requirements-dev.txt   # app + test tools
 copy .env.example .env             # then add your GEMINI_API_KEY
 python -m uvicorn app.main:app --reload   # open http://127.0.0.1:8000
-python -m pytest -q                       # 22 offline tests, no API key needed
+python -m pytest -q                       # 35 offline tests, no API key needed
 python -m scripts.eval_questions          # 30-question evaluation (uses the API)
+python -m scripts.eval_scenarios          # 9 multi-turn conversations, checked on the database
+python -m scripts.judge                   # LLM-as-judge on the 30 saved replies
 ```
 
 ## Tests and CI
@@ -94,7 +102,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push, on pull requests
 
 | Job | What it checks |
 |---|---|
-| Tests (Python 3.11 and 3.13) | 22 offline tests with a fake Gemini client (no API key); a deprecation warning counts as an error |
+| Tests (Python 3.11 and 3.13) | 35 offline tests with a fake Gemini client (no API key); a deprecation warning counts as an error |
 | Eval grading | Re-grades the 30 saved replies; fails if the grading rules no longer give 30/30 |
 | Docker | The image builds and runs as user 10001, not root |
 | Security | `gitleaks` on the whole git history, `pip-audit` on the pinned versions |
@@ -123,9 +131,10 @@ app/
   agent.py     system prompt, chat sessions, RAG + tools, fallback model
   main.py      FastAPI endpoints, rate limits, security headers
   security.py  rate limiter, session tokens, input checks
+  telemetry.py per-turn log without personal data, /api/stats numbers
 knowledge_base/  hotel info (markdown)
 static/          chat UI
-scripts/         30-question evaluation
+scripts/         30-question evaluation, multi-turn scenarios, LLM judge
 reports/         evaluation results
 tests/           offline tests (fake Gemini client)
 ```
@@ -135,4 +144,4 @@ tests/           offline tests (fake Gemini client)
 - Bookings use SQLite in the container, so they reset when the app restarts → move to Firestore/PostgreSQL.
 - Chat sessions are kept in memory → move to Redis/Firestore to run several instances.
 - Rate limits and sessions are in memory (one instance only) → Redis to share them.
-- Next: LLM-as-judge evaluation, booking cancellation tool, email confirmation, review sentiment analysis.
+- Next: email confirmation, review sentiment analysis.

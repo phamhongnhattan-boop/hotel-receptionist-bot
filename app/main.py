@@ -1,15 +1,18 @@
 """FastAPI app.  Local:  uvicorn app.main:app --reload"""
 from __future__ import annotations
 
+import hmac
 import logging
+import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app import config
 from app.security import RateLimiter, client_ip, is_valid_session_id, new_session_id
+from app.telemetry import EventLog
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("app")
@@ -21,21 +24,25 @@ per_ip_limiter = RateLimiter(config.RATE_LIMIT_PER_MINUTE, window=60)
 daily_limiter = RateLimiter(config.DAILY_MESSAGE_LIMIT, window=24 * 3600)
 
 
-def build_agent():
+def build_agent(store=None, client=None):
+    """The real agent. Scripts can pass their own BookingStore (e.g. in memory) to check it."""
     from app.agent import ReceptionistAgent
     from app.booking import BookingStore, make_tools
     from app.llm import get_client, make_embedder
     from app.rag import Retriever, load_chunks
 
-    client = get_client()
+    client = client or get_client()
     retriever = Retriever(load_chunks(config.KB_DIR), make_embedder(client))
-    return ReceptionistAgent(client, retriever, make_tools(BookingStore(config.DB_PATH)))
+    store = store or BookingStore(config.DB_PATH)
+    return ReceptionistAgent(client, retriever, make_tools(store))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if "agent" not in state:  # tests can put a fake agent here first
         state["agent"] = build_agent()
+    if "events" not in state:
+        state["events"] = EventLog(config.DB_PATH)
     yield
 
 
@@ -105,11 +112,17 @@ def chat(body: ChatIn, request: Request):
     if not (is_valid_session_id(session_id) and agent.has_session(session_id)):
         session_id = new_session_id()
 
+    start = time.perf_counter()
     try:
         result = agent.reply(session_id, body.message)
     except Exception as e:  # show a clean error to the UI, keep details in logs
         log.error("chat error: %r", e)
+        state["events"].add(session_id=session_id, message=body.message, error=type(e).__name__,
+                            latency_ms=(time.perf_counter() - start) * 1000)
         raise HTTPException(status_code=502, detail="Bot is busy, please try again.")
+    state["events"].add(session_id=session_id, message=body.message, result=result,
+                        latency_ms=(time.perf_counter() - start) * 1000, main_model=config.CHAT_MODEL)
+    result.pop("tools", None)  # internal detail, not sent to the browser
     return {**result, "session_id": session_id}
 
 
@@ -118,3 +131,14 @@ def reset(body: ResetIn):
     if is_valid_session_id(body.session_id):
         state["agent"].reset(body.session_id)
     return {"ok": True}
+
+
+@app.get("/api/stats")
+def stats(hours: int = 24, authorization: str | None = Header(default=None)):
+    """Usage numbers for the owner. Needs STATS_TOKEN; without it the endpoint does not exist."""
+    if not config.STATS_TOKEN:
+        raise HTTPException(status_code=404)
+    expected = f"Bearer {config.STATS_TOKEN}"
+    if not hmac.compare_digest((authorization or "").encode(), expected.encode()):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return state["events"].stats(max(1, min(hours, 24 * 30)))

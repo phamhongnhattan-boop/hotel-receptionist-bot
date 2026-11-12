@@ -5,6 +5,7 @@ To run several instances, move RateLimiter and SessionStore to Redis.
 """
 from __future__ import annotations
 
+import hmac
 import re
 import secrets
 import threading
@@ -140,6 +141,18 @@ def normalize_phone(phone: str) -> str | None:
     """'0905 123 456', '+84-905.123.456' -> digits. None if it is not a phone number."""
     cleaned = re.sub(r"[\s.\-()]", "", phone or "")
     return cleaned if PHONE_RE.match(cleaned) else None
+
+
+def same_phone(stored: str, given: str) -> bool:
+    """Same Vietnamese number written two ways: '0905123456' == '+84905123456' == '84905123456'."""
+    def local(p: str | None) -> str | None:
+        p = normalize_phone(p or "")
+        if p is None:
+            return None
+        p = p.lstrip("+")
+        return "0" + p[2:] if p.startswith("84") and len(p) >= 11 else p
+    a, b = local(stored), local(given)
+    return a is not None and hmac.compare_digest(a, b or "")
 
 
 def is_valid_name(name: str) -> bool:

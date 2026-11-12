@@ -37,7 +37,7 @@ def test_search_finds_right_section():
 # ---------- Booking tools ----------
 @pytest.fixture
 def tools():
-    check, create = make_tools(BookingStore(":memory:"))
+    check, create, *_ = make_tools(BookingStore(":memory:"))
     return check, create
 
 
@@ -143,7 +143,9 @@ def api():
     """Test client with a fake agent and fresh rate limiters."""
     from app import main
     from app.security import RateLimiter
+    from app.telemetry import EventLog
     main.state["agent"] = FakeAgent()
+    main.state["events"] = EventLog(":memory:")
     main.per_ip_limiter = RateLimiter(3, window=60)
     main.daily_limiter = RateLimiter(1000, window=24 * 3600)
     with TestClient(main.app) as client:
@@ -246,7 +248,7 @@ def test_booking_checks_name_and_phone(tools):
 
 def test_booking_limit_per_session():
     """Prompt injection like 'book all rooms' cannot fill the hotel from one chat."""
-    _, create = make_tools(BookingStore(":memory:"), max_per_session=2)
+    _, create, *_ = make_tools(BookingStore(":memory:"), max_per_session=2)
     ci, co = _dates()
     results = [_as_session("attacker", create, f"Guest {i}", "0905123456", ci, co, "standard")
                for i in range(4)]
@@ -270,3 +272,156 @@ def test_guest_cannot_close_the_message_tag():
 def test_phone_is_masked_in_logs():
     from app.security import mask_phone
     assert mask_phone("0905123456") == "*******456"
+
+
+# ---------- Look up / cancel a booking ----------
+from datetime import datetime  # noqa: E402
+
+from app import telemetry  # noqa: E402
+from app.security import same_phone  # noqa: E402
+
+
+def _booked(now=None, start_in_days=10):
+    store = BookingStore(":memory:")
+    clock = (lambda: now) if now else datetime.now
+    check, create, find, cancel = make_tools(store, max_failed_lookups=3, now=clock)
+    ci, co = _dates(start_in_days=start_in_days)
+    res = create("Nguyen Van A", "0905123456", ci, co, "deluxe")
+    assert res["ok"]
+    return store, check, find, cancel, res["booking_id"], ci, co
+
+
+def test_same_phone_accepts_both_vietnamese_formats():
+    assert same_phone("0905123456", "+84 905 123 456")
+    assert same_phone("0905123456", "84905123456")
+    assert not same_phone("0905123456", "0905123457")
+    assert not same_phone("0905123456", "")
+
+
+def test_find_booking_needs_code_and_phone():
+    _, _, find, _, code, ci, _ = _booked()
+    res = find(code.lower(), "+84905123456")
+    assert res["ok"] and res["check_in"] == ci and res["status"] == "confirmed"
+    assert res["phone"] == "*******456"          # full phone never goes back to the model
+    wrong_phone, wrong_code = find(code, "0911111111"), find("BK-000000", "0905123456")
+    assert not wrong_phone["ok"] and not wrong_code["ok"]
+    assert wrong_phone["error"] == wrong_code["error"]   # does not tell which part was wrong
+
+
+def test_wrong_tries_are_limited():
+    _, _, find, _, code, _, _ = _booked()
+    for _ in range(3):
+        assert not find(code, "0911111111")["ok"]
+    res = find(code, "0905123456")                # right details, but too late
+    assert not res["ok"] and "hotline" in res["error"]
+
+
+def test_cancel_frees_the_room_and_only_once():
+    store, check, find, cancel, code, ci, co = _booked()
+    before = check(ci, co, "deluxe")["rooms_available"]
+    res = cancel(code, "0905123456")
+    assert res["ok"] and res["cancellation_fee_vnd"] == 0      # more than 48 h before check-in
+    assert check(ci, co, "deluxe")["rooms_available"] == before + 1
+    assert not cancel(code, "0905123456")["ok"]                  # already canceled
+    assert find(code, "0905123456")["status"] == "canceled"
+
+
+def test_late_cancel_costs_the_first_night():
+    ci = date.today() + timedelta(days=1)
+    late = datetime.combine(ci - timedelta(days=1), datetime.min.time()).replace(hour=20)  # < 48 h before 14:00
+    _, _, find, cancel, code, _, _ = _booked(now=late, start_in_days=1)
+    assert find(code, "0905123456")["cancellation_fee_vnd_if_canceled_now"] == 1_400_000
+    assert cancel(code, "0905123456")["cancellation_fee_vnd"] == 1_400_000
+
+
+def test_old_database_gets_status_column(tmp_path):
+    import sqlite3
+    db = tmp_path / "old.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE bookings (id TEXT PRIMARY KEY, guest_name TEXT NOT NULL, phone TEXT NOT NULL, "
+                "room_type TEXT NOT NULL, check_in TEXT NOT NULL, check_out TEXT NOT NULL, created_at TEXT)")
+    con.execute("INSERT INTO bookings VALUES ('BK-AAAAAA','A B','0905123456','family','2030-01-01','2030-01-02',NULL)")
+    con.commit(); con.close()
+    assert BookingStore(db).get("BK-AAAAAA")["status"] == "confirmed"
+
+
+# ---------- Logging and /api/stats ----------
+def test_tools_called_are_recorded():
+    check, *_ = make_tools(BookingStore(":memory:"))
+    token = telemetry.start_tool_log()
+    check(*_dates(), "standard")
+    assert telemetry.stop_tool_log(token) == ["check_availability"]
+
+
+def test_event_log_keeps_no_personal_data():
+    events = telemetry.EventLog(":memory:")
+    events.add(session_id="secret-session", message="Tôi là Nguyễn Văn A, sđt 0905123456", latency_ms=1234.5,
+               result={"reply": "Dạ em không chắc, anh gọi 0236 000 0000 nhé", "model": "lite",
+                       "sources": [{"title": "Bữa sáng", "score": 0.8}], "tools": ["find_booking"]},
+               main_model="main")
+    row = events.conn.execute("SELECT * FROM chat_events").fetchone()
+    text = " ".join(str(v) for v in row)
+    assert "0905123456" not in text and "Nguyễn" not in text and "secret-session" not in text
+    s = events.stats()
+    assert s["messages"] == 1 and s["languages"]["vi"] == 1
+    assert s["fallback_rate_%"] == 100.0 and s["not_sure_rate_%"] == 100.0
+    assert s["tool_calls"] == {"find_booking": 1} and s["latency_ms"]["p50"] == 1234.5
+
+
+def test_stats_endpoint_needs_token(api, monkeypatch):
+    from app import config as cfg
+    monkeypatch.setattr(cfg, "STATS_TOKEN", None)
+    assert api.get("/api/stats").status_code == 404           # off by default
+    monkeypatch.setattr(cfg, "STATS_TOKEN", "s3cret-token")
+    assert api.get("/api/stats").status_code == 401
+    assert api.get("/api/stats", headers={"Authorization": "Bearer wrong"}).status_code == 401
+    api.post("/api/chat", json={"message": "hello"})
+    r = api.get("/api/stats", headers={"Authorization": "Bearer s3cret-token"})
+    assert r.status_code == 200 and r.json()["messages"] == 1
+
+
+def test_chat_reply_does_not_expose_tool_list(api):
+    r = api.post("/api/chat", json={"message": "hi"}).json()
+    assert "tools" not in r and "session_id" in r
+
+
+# ---------- Scenario checks (offline: fixed replies, real database) ----------
+def test_scenario_checks_use_the_database():
+    from scripts import eval_scenarios as ev
+    store = BookingStore(":memory:")
+    assert ev.check_book(["ok"], store, None) == ["expected 1 booking, found 0"]
+    code = store.add("Nguyen Van An", "0905111222", "deluxe", date.fromisoformat(ev.D1), date.fromisoformat(ev.D2))
+    assert ev.check_book([f"Mã đặt phòng của anh là {code}"], store, None) == []
+    assert ev.check_book(["Đặt xong rồi ạ"], store, None) == ["booking code not given to the guest"]
+
+
+def test_scenario_leak_check():
+    from scripts import eval_scenarios as ev
+    store = BookingStore(":memory:")
+    code = ev.seed(store)
+    assert ev.check_no_leak(["Sorry, no booking matches that code and phone."], store, code) == []
+    d = date.fromisoformat(ev.D1)
+    assert ev.check_no_leak([f"Booking for Tran Thi Bich on {d.day}/{d.month}"], store, code)
+
+
+def test_judge_schema_builds():
+    from scripts import judge
+    assert set(judge.CRITERIA) <= set(judge.SCHEMA.properties)
+
+
+def test_tools_work_when_called_by_the_gemini_sdk():
+    """Call each tool the way the SDK does (args dict + type hints), not directly.
+    Catches type hints the SDK cannot read, which made every tool call fail with google-genai 2.33."""
+    from google.genai import _extra_utils
+    check, create, find, cancel = make_tools(BookingStore(":memory:"))
+    ci, co = _dates()
+    res = _extra_utils.invoke_function_from_dict_args(
+        {"check_in": ci, "check_out": co, "room_type": "deluxe"}, check)
+    assert res["ok"]
+    made = _extra_utils.invoke_function_from_dict_args(
+        {"guest_name": "Nguyen Van An", "phone": "0905111222", "check_in": ci, "check_out": co,
+         "room_type": "deluxe"}, create)
+    assert made["ok"]
+    args = {"booking_id": made["booking_id"], "phone": "0905111222"}
+    assert _extra_utils.invoke_function_from_dict_args(args, find)["ok"]
+    assert _extra_utils.invoke_function_from_dict_args(args, cancel)["ok"]
