@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -88,6 +89,35 @@ def too_many(retry_after: float, detail: str) -> JSONResponse:
 @app.api_route("/", methods=["GET", "HEAD"])  # Render health checks use HEAD
 def index():
     return FileResponse(config.STATIC_DIR / "index.html")
+
+
+@app.get("/reviews")
+def reviews_page():
+    return FileResponse(config.STATIC_DIR / "reviews.html")
+
+
+@app.get("/api/reviews")
+def reviews_summary():
+    """What guests praise or complain about + model scores, made offline by scripts/sentiment.py.
+    Only reads two fixed files: no user input reaches the file system or the API."""
+    reports = config.ROOT / "reports"
+    try:
+        aspects = json.loads((reports / "review_aspects.json").read_text(encoding="utf-8"))
+        results = json.loads((reports / "sentiment_results.json").read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Review analysis not run yet.")
+    sample = results.get("gemini_sample", {})
+    return {
+        "aspects": aspects["aspects"],
+        "source": aspects["source"],
+        "models": {
+            "tfidf_full_test": results["full_test_set"]["tfidf_logreg"],
+            "full_test_n": results["full_test_set"]["n"],
+            "tfidf_sample": sample.get("tfidf_logreg"),
+            "gemini_sample": sample.get("gemini_zero_shot"),
+            "sample_n": sample.get("n"),
+        },
+    }
 
 
 @app.api_route("/health", methods=["GET", "HEAD"])

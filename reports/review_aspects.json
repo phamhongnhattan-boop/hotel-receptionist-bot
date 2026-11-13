@@ -1,0 +1,61 @@
+{
+  "source": "Gemini on 120 test reviews",
+  "aspects": [
+    {
+      "aspect": "room",
+      "mentions": 116,
+      "positive": 86,
+      "negative": 30,
+      "negative_%": 25.9
+    },
+    {
+      "aspect": "staff",
+      "mentions": 106,
+      "positive": 89,
+      "negative": 17,
+      "negative_%": 16.0
+    },
+    {
+      "aspect": "location",
+      "mentions": 92,
+      "positive": 83,
+      "negative": 9,
+      "negative_%": 9.8
+    },
+    {
+      "aspect": "breakfast_food",
+      "mentions": 68,
+      "positive": 44,
+      "negative": 24,
+      "negative_%": 35.3
+    },
+    {
+      "aspect": "cleanliness",
+      "mentions": 65,
+      "positive": 56,
+      "negative": 9,
+      "negative_%": 13.8
+    },
+    {
+      "aspect": "price_value",
+      "mentions": 63,
+      "positive": 40,
+      "negative": 23,
+      "negative_%": 36.5
+    },
+    {
+      "aspect": "facilities",
+      "mentions": 61,
+      "positive": 41,
+      "negative": 20,
+      "negative_%": 32.8
+    },
+    {
+      "aspect": "noise",
+      "mentions": 34,
+      "positive": 22,
+      "negative": 12,
+      "negative_%": 35.3
+    }
+  ]
+}

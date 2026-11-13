@@ -15,7 +15,7 @@ from typing import Callable
 
 from app import config
 from app.security import current_session, current_turn, is_valid_name, mask_phone, normalize_phone, same_phone
-from app.telemetry import record_tool
+from app.telemetry import record_code, record_tool
 
 log = logging.getLogger(__name__)
 
@@ -213,6 +213,7 @@ def make_tools(store: BookingStore, max_per_session: int = config.MAX_BOOKINGS_P
         # Never write the full phone number to logs
         log.info("booking %s created: %s %s->%s phone=%s", booking_id, avail["room_type"],
                  check_in, check_out, mask_phone(clean_phone))
+        record_code(booking_id)
         return {"ok": True, "booking_id": booking_id, **avail}
 
     def _verified(booking_id: str, phone: str) -> sqlite3.Row | dict:
@@ -240,6 +241,7 @@ def make_tools(store: BookingStore, max_per_session: int = config.MAX_BOOKINGS_P
             row = _verified(booking_id, phone)
         if isinstance(row, dict):
             return row
+        record_code(row["id"])
         ci = date.fromisoformat(row["check_in"])
         out = {
             "ok": True, "booking_id": row["id"], "status": row["status"], "guest_name": row["guest_name"],

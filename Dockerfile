@@ -12,6 +12,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY knowledge_base ./knowledge_base
 COPY static ./static
+# Review analysis results shown at /reviews (made offline by scripts/sentiment.py)
+COPY reports ./reports
 
 # Run as a normal user, not root: if the app is ever hacked, the attacker has fewer rights
 RUN useradd --create-home --uid 10001 appuser

@@ -2,3 +2,5 @@
 -r requirements.txt
 pytest==9.2.0
 httpx2==2.16.0   # test client for FastAPI (Starlette now asks for httpx2, not httpx)
+scikit-learn==1.9.1   # scripts/sentiment.py (not needed by the app)
+pandas==2.3.3

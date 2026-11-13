@@ -1,0 +1,159 @@
+{
+  "data": "TripAdvisor Hotel Reviews, 20491 reviews, stratified 80/20 split (seed 42)",
+  "labels": "1-2 stars negative, 3 neutral, 4-5 positive",
+  "full_test_set": {
+    "n": 4099,
+    "majority_class": {
+      "accuracy": 0.737,
+      "macro_f1": 0.283,
+      "f1_per_class": {
+        "negative": 0.0,
+        "neutral": 0.0,
+        "positive": 0.848
+      },
+      "confusion_rows_true_cols_pred": [
+        [
+          0,
+          0,
+          643
+        ],
+        [
+          0,
+          0,
+          437
+        ],
+        [
+          0,
+          0,
+          3019
+        ]
+      ]
+    },
+    "tfidf_logreg": {
+      "accuracy": 0.844,
+      "macro_f1": 0.712,
+      "f1_per_class": {
+        "negative": 0.791,
+        "neutral": 0.421,
+        "positive": 0.923
+      },
+      "confusion_rows_true_cols_pred": [
+        [
+          529,
+          78,
+          36
+        ],
+        [
+          103,
+          197,
+          137
+        ],
+        [
+          63,
+          223,
+          2733
+        ]
+      ],
+      "C": 1,
+      "train_seconds": 33.9,
+      "ms_per_review": 0.129
+    }
+  },
+  "tfidf_top_words": {
+    "negative": [
+      "not",
+      "dirty",
+      "terrible",
+      "worst",
+      "told",
+      "no",
+      "rude",
+      "poor",
+      "bad",
+      "horrible"
+    ],
+    "neutral": [
+      "ok",
+      "average",
+      "nothing special",
+      "bit",
+      "good",
+      "location",
+      "not bad",
+      "fine",
+      "nice",
+      "decent"
+    ],
+    "positive": [
+      "great",
+      "excellent",
+      "loved",
+      "wonderful",
+      "perfect",
+      "fantastic",
+      "great hotel",
+      "comfortable",
+      "helpful",
+      "quiet"
+    ]
+  },
+  "gemini_sample": {
+    "n": 120,
+    "models_used": {
+      "gemini-flash-lite-latest": 120
+    },
+    "tfidf_logreg": {
+      "accuracy": 0.892,
+      "macro_f1": 0.784,
+      "f1_per_class": {
+        "negative": 0.909,
+        "neutral": 0.5,
+        "positive": 0.942
+      },
+      "confusion_rows_true_cols_pred": [
+        [
+          20,
+          0,
+          0
+        ],
+        [
+          3,
+          6,
+          3
+        ],
+        [
+          1,
+          6,
+          81
+        ]
+      ]
+    },
+    "gemini_zero_shot": {
+      "accuracy": 0.9,
+      "macro_f1": 0.799,
+      "f1_per_class": {
+        "negative": 0.884,
+        "neutral": 0.56,
+        "positive": 0.953
+      },
+      "confusion_rows_true_cols_pred": [
+        [
+          19,
+          1,
+          0
+        ],
+        [
+          3,
+          7,
+          2
+        ],
+        [
+          1,
+          5,
+          82
+        ]
+      ],
+      "ms_per_review_p50": 1317
+    }
+  }
+}

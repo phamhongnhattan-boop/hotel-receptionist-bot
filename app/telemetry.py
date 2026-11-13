@@ -19,19 +19,28 @@ log = logging.getLogger("chat")
 
 # Tools append their name here while a reply is being made (see booking.py)
 _tool_calls: ContextVar[list[str] | None] = ContextVar("tool_calls", default=None)
+# Booking codes that a tool really returned in this reply (used to catch invented codes)
+_codes: ContextVar[set[str] | None] = ContextVar("booking_codes", default=None)
 
 VI_CHARS = re.compile(r"[ăâđêôơưàáạảãèéẹẻẽìíịỉĩòóọỏõùúụủũỳýỵỷỹ]", re.IGNORECASE)
 NOT_SURE = ("không chắc", "chưa chắc", "not sure", "0236 000 0000")
 
 
-def start_tool_log() -> object:
-    return _tool_calls.set([])
+def start_tool_log() -> tuple:
+    return _tool_calls.set([]), _codes.set(set())
 
 
-def stop_tool_log(token) -> list[str]:
-    calls = _tool_calls.get() or []
-    _tool_calls.reset(token)
-    return calls
+def stop_tool_log(tokens) -> tuple[list[str], set[str]]:
+    calls, codes = _tool_calls.get() or [], _codes.get() or set()
+    _tool_calls.reset(tokens[0])
+    _codes.reset(tokens[1])
+    return calls, codes
+
+
+def record_code(code: str) -> None:
+    codes = _codes.get()
+    if codes is not None:
+        codes.add(code.upper())
 
 
 def record_tool(name: str) -> None:

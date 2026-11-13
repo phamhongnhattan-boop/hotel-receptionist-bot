@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import date
 
@@ -45,6 +46,27 @@ Security:
 """
 
 
+CODE_RE = re.compile(r"\bBK-[A-Z0-9-]+", re.IGNORECASE)
+NOT_BOOKED = {
+    "vi": "Xin lỗi anh/chị, phòng CHƯA được đặt và chưa có mã đặt phòng. Anh/chị vui lòng xác nhận lại "
+          "thông tin (tên, số điện thoại, ngày, loại phòng) để em thử lại, hoặc gọi hotline 0236 000 0000.",
+    "en": "Sorry, the room is NOT booked yet and there is no booking code. Please confirm your details "
+          "(name, phone, dates, room type) so I can try again, or call our hotline 0236 000 0000.",
+}
+
+
+def guard_booking_codes(reply: str, allowed: set[str], language: str) -> tuple[str, list[str]]:
+    """Replace a reply that shows a booking code no tool returned (and the guest never wrote).
+
+    Found by the scenario eval: the model told a guest "booked! code BK-DELUXE20261213" while the
+    database was empty. A made-up code is worse than an error, so it is checked in Python.
+    """
+    invented = sorted({c.upper() for c in CODE_RE.findall(reply)} - allowed)
+    if invented:
+        return NOT_BOOKED["vi" if language == "vi" else "en"], invented
+    return reply, []
+
+
 def _is_busy(e: errors.APIError) -> bool:
     """True for errors that a different model may not have: overload (5xx) or rate limit (429)."""
     return isinstance(e, errors.ServerError) or getattr(e, "code", None) == 429
@@ -61,6 +83,8 @@ class ReceptionistAgent:
         self.fallback_model = fallback_model
         # session_id -> (chat, model name); limited count + idle timeout
         self.sessions = sessions or SessionStore(config.MAX_SESSIONS, config.SESSION_TTL_MINUTES * 60)
+        # session_id -> booking codes that tools returned or the guest wrote (same limits)
+        self.known_codes: SessionStore = SessionStore(config.MAX_SESSIONS, config.SESSION_TTL_MINUTES * 60)
 
     def has_session(self, session_id: str) -> bool:
         return session_id in self.sessions
@@ -121,10 +145,17 @@ class ReceptionistAgent:
         finally:
             current_session.reset(token)
             current_turn.reset(turn_token)
-            tools_used = stop_tool_log(tool_log)
+            tools_used, codes_from_tools = stop_tool_log(tool_log)
+
+        known = (self.known_codes.get(session_id) or set()) | codes_from_tools | \
+            {c.upper() for c in CODE_RE.findall(message)}
+        self.known_codes.set(session_id, known)
+        text, invented = guard_booking_codes(response.text or "", known, guess_language(message))
+        if invented:
+            log.warning("blocked a reply with invented booking code(s): %s", invented)
 
         return {
-            "reply": response.text or "",
+            "reply": text,
             "sources": [{"title": c.title, "score": round(s, 3)} for c, s in results],
             "model": model_used,
             "tools": tools_used,
@@ -132,3 +163,4 @@ class ReceptionistAgent:
 
     def reset(self, session_id: str) -> None:
         self.sessions.pop(session_id, None)
+        self.known_codes.pop(session_id, None)

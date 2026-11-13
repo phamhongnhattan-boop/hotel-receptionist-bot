@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review analysis</title>
+<style>
+  :root { --brand:#0f6e6e; --bg:#f4f6f8; --pos:#2e8b57; --neg:#c0392b; --text:#1d2430; --muted:#5b6575; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  header { background:var(--brand); color:#fff; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; }
+  header h1 { font-size:17px; margin:0; }
+  header a { color:#fff; font-size:14px; white-space:nowrap; margin-left:12px; }
+  .scroll { overflow-x:auto; }
+  main { max-width:820px; margin:0 auto; padding:16px; }
+  section { background:#fff; border-radius:12px; padding:16px; margin:12px 0; box-shadow:0 1px 2px #0001; }
+  h2 { font-size:16px; margin:0 0 4px; }
+  .note { color:var(--muted); font-size:13px; margin:0 0 12px; }
+  .row { display:grid; grid-template-columns: 120px 1fr 64px; gap:10px; align-items:center; margin:8px 0; font-size:14px; }
+  .bar { display:flex; height:16px; border-radius:4px; overflow:hidden; background:#eee; }
+  .bar .p { background:var(--pos); } .bar .n { background:var(--neg); }
+  .legend { font-size:12px; color:var(--muted); display:flex; gap:14px; }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:middle; }
+  table { border-collapse:collapse; width:100%; font-size:14px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid #eee; }
+  td.num, th.num { text-align:right; font-variant-numeric: tabular-nums; }
+  .err { color:var(--neg); }
+  @media (max-width:520px) { .row { grid-template-columns: 90px 1fr 52px; } table { font-size:13px; } th, td { padding:6px 4px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Review analysis · what guests praise and complain about</h1>
+  <a href="/">← Chat</a>
+</header>
+<main>
+  <section>
+    <h2>Aspects mentioned in reviews</h2>
+    <p class="note" id="source">Loading…</p>
+    <div class="legend"><span><i class="dot" style="background:var(--pos)"></i>positive</span>
+      <span><i class="dot" style="background:var(--neg)"></i>negative</span></div>
+    <div id="aspects"></div>
+  </section>
+  <section>
+    <h2>Which model to use?</h2>
+    <p class="note">Overall sentiment (1-2 stars negative, 3 neutral, 4-5 positive). Macro-F1 gives the rare
+      "neutral" class the same weight as the others.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Model</th><th class="num">Reviews</th><th class="num">Accuracy</th>
+        <th class="num">Macro-F1</th><th class="num">F1 neutral</th></tr></thead>
+      <tbody id="models"></tbody>
+    </table></div>
+  </section>
+</main>
+<script>
+// All values are written with textContent (never innerHTML), so data cannot inject HTML.
+function el(tag, text, cls) {
+  const e = document.createElement(tag);
+  if (text !== undefined) e.textContent = text;
+  if (cls) e.className = cls;
+  return e;
+}
+const NAMES = { room: "Room", cleanliness: "Cleanliness", staff: "Staff", breakfast_food: "Breakfast / food",
+  location: "Location", price_value: "Price / value", noise: "Noise", facilities: "Facilities" };
+
+fetch("/api/reviews").then(r => r.ok ? r.json() : Promise.reject(r.status)).then(data => {
+  document.getElementById("source").textContent =
+    data.source + ". Bars: share of positive vs negative mentions. Number: % negative.";
+  const box = document.getElementById("aspects");
+  for (const a of data.aspects) {
+    const row = el("div", undefined, "row");
+    row.append(el("span", `${NAMES[a.aspect] || a.aspect} (${a.mentions})`));
+    const bar = el("div", undefined, "bar");
+    const p = el("span", undefined, "p"), n = el("span", undefined, "n");
+    p.style.width = (100 * a.positive / a.mentions) + "%";
+    n.style.width = (100 * a.negative / a.mentions) + "%";
+    bar.title = `${a.positive} positive, ${a.negative} negative`;
+    bar.append(p, n);
+    row.append(bar, el("span", a["negative_%"] + "%", "num"));
+    box.append(row);
+  }
+  const m = data.models, body = document.getElementById("models");
+  const add = (name, n, s) => {
+    if (!s) return;
+    const tr = el("tr");
+    tr.append(el("td", name), el("td", String(n), "num"), el("td", s.accuracy.toFixed(3), "num"),
+      el("td", s.macro_f1.toFixed(3), "num"), el("td", s.f1_per_class.neutral.toFixed(3), "num"));
+    body.append(tr);
+  };
+  add("TF-IDF + logistic regression (full test set)", m.full_test_n, m.tfidf_full_test);
+  add("TF-IDF + logistic regression (sample)", m.sample_n, m.tfidf_sample);
+  add("Gemini, zero-shot (same sample)", m.sample_n, m.gemini_sample);
+}).catch(() => {
+  document.getElementById("source").replaceWith(el("p", "Review analysis is not available yet.", "err"));
+});
+</script>
+</body>
+</html>

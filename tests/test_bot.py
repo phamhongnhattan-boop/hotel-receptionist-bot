@@ -350,7 +350,7 @@ def test_tools_called_are_recorded():
     check, *_ = make_tools(BookingStore(":memory:"))
     token = telemetry.start_tool_log()
     check(*_dates(), "standard")
-    assert telemetry.stop_tool_log(token) == ["check_availability"]
+    assert telemetry.stop_tool_log(token) == (["check_availability"], set())
 
 
 def test_event_log_keeps_no_personal_data():
@@ -527,3 +527,110 @@ def test_broken_cache_file_is_ignored(tmp_path):
     path.write_bytes(b"not a numpy file")
     r = Retriever(load_chunks(config.KB_DIR), cached_embedder(fake_embed, path, "m"))
     assert r.matrix.shape[0] == len(load_chunks(config.KB_DIR))
+
+
+# ---------- Review sentiment (offline: tiny fake reviews, fake Gemini) ----------
+def _fake_reviews(n=300, seed=0):
+    import pandas as pd
+    rng = np.random.default_rng(seed)
+    words = {1: "dirty rude awful noisy terrible", 2: "bad dirty slow disappointing", 3: "ok average fine but noisy",
+             4: "good clean friendly nice", 5: "excellent amazing perfect wonderful clean"}
+    stars = rng.choice([1, 2, 3, 4, 5], n, p=[0.1, 0.1, 0.15, 0.3, 0.35])
+    return pd.DataFrame({"Review": [f"hotel was {words[s]} room {i}" for i, s in enumerate(stars)], "Rating": stars})
+
+
+def test_stars_to_label():
+    from scripts.sentiment import stars_to_label
+    assert [stars_to_label(s) for s in (1, 2, 3, 4, 5)] == ["negative", "negative", "neutral", "positive", "positive"]
+
+
+def test_tfidf_model_learns_fake_reviews(tmp_path):
+    from scripts import sentiment
+    path = tmp_path / "r.csv"
+    _fake_reviews().to_csv(path, index=False)
+    df = sentiment.load_reviews(path)
+    model, _ = sentiment.train_tfidf(df["text"][:240], df["label"][:240], cv=2)
+    s = sentiment.scores(df["label"][240:], model.predict(df["text"][240:]))
+    assert s["macro_f1"] > 0.8
+    assert "terrible" in sentiment.top_words(model)["negative"] or "awful" in sentiment.top_words(model)["negative"]
+
+
+def test_gemini_answer_is_cleaned():
+    from scripts.sentiment import aspect_summary, parse_gemini
+    raw = '{"sentiment": "positive", "aspects": [{"aspect": "staff", "polarity": "positive"},' \
+          '{"aspect": "<script>", "polarity": "positive"}, {"aspect": "room", "polarity": "meh"},' \
+          '{"aspect": "staff", "polarity": "positive"}]}'
+    out = parse_gemini(raw)
+    assert out == {"sentiment": "positive", "aspects": [("staff", "positive")]}   # bad values dropped, no duplicates
+    assert parse_gemini('{"sentiment": "angry", "aspects": []}')["sentiment"] == "neutral"
+    summary = aspect_summary([out, {"sentiment": "negative", "aspects": [("staff", "negative"), ("noise", "negative")]}])
+    assert summary[0] == {"aspect": "staff", "mentions": 2, "positive": 1, "negative": 1, "negative_%": 50.0}
+
+
+def test_reviews_endpoint(api, tmp_path, monkeypatch):
+    import json as _json
+    from app import config as cfg
+    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    assert api.get("/api/reviews").status_code == 404            # not run yet
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "reports" / "review_aspects.json").write_text(_json.dumps(
+        {"source": "test", "aspects": [{"aspect": "staff", "mentions": 2, "positive": 1, "negative": 1, "negative_%": 50.0}]}))
+    (tmp_path / "reports" / "sentiment_results.json").write_text(_json.dumps(
+        {"full_test_set": {"n": 10, "tfidf_logreg": {"accuracy": 0.9}}}))
+    r = api.get("/api/reviews").json()
+    assert r["aspects"][0]["aspect"] == "staff" and r["models"]["full_test_n"] == 10
+    assert api.get("/reviews").status_code == 200
+
+
+
+# ---------- Invented booking codes are blocked ----------
+def test_invented_booking_code_is_replaced():
+    from app.agent import guard_booking_codes
+    fake = "Dạ, em đã đặt phòng thành công! Mã đặt phòng: BK-DELUXE20261213"
+    text, invented = guard_booking_codes(fake, allowed=set(), language="vi")
+    assert invented == ["BK-DELUXE20261213"] and "CHƯA được đặt" in text
+    real = "Booked! Your code is **bk-1a2b3c**."
+    assert guard_booking_codes(real, {"BK-1A2B3C"}, "en") == (real, [])
+
+
+def test_codes_from_tools_and_guest_are_allowed():
+    """A code returned by create_booking in this chat, or typed by the guest, may be repeated."""
+    from app.agent import ReceptionistAgent
+    store = BookingStore(":memory:")
+    check, create, find, cancel = make_tools(store)
+    ci, co = _dates()
+
+    class Chat:
+        def __init__(self):
+            self.n = 0
+
+        def send_message(self, prompt):
+            self.n += 1
+            args = ("Nguyen Van An", "0905111222", ci, co, "deluxe")
+            if self.n == 1:   # first call only proposes; inventing a code here must be blocked
+                assert create(*args)["needs_confirmation"]
+                return type("R", (), {"text": "Booked! Code BK-FAKE01"})()
+            if self.n == 2:   # guest said yes: the SDK runs the tool, the model quotes the real code
+                self.code = create(*args)["booking_id"]
+                return type("R", (), {"text": f"Booked, code {self.code}"})()
+            if self.n == 3:   # repeats the real code in a later message: fine
+                return type("R", (), {"text": f"Your code is still {self.code}"})()
+            return type("R", (), {"text": "No booking matches BK-999999 and that phone."})()
+
+    chat = Chat()
+
+    class Client:
+        class chats:
+            @staticmethod
+            def create(model, history=None, config=None):
+                return chat
+
+    r = Retriever(load_chunks(config.KB_DIR), fake_embed)
+    agent = ReceptionistAgent(Client, r, tools=[], model="m", fallback_model=None)
+    blocked = agent.reply("s1", "Book a deluxe room for Nguyen Van An, 0905111222")
+    assert "NOT booked" in blocked["reply"] and store.conn.execute("SELECT COUNT(*) FROM bookings").fetchone()[0] == 0
+    first = agent.reply("s1", "Yes please book it")
+    assert first["reply"].startswith("Booked, code BK-")
+    assert agent.reply("s1", "what was my code?")["reply"].startswith("Your code is still BK-")
+    # code typed by the guest (wrong one) may be repeated in a "not found" answer
+    assert agent.reply("s1", "check BK-999999 phone 0911111111")["reply"].startswith("No booking matches")
