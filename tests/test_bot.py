@@ -425,3 +425,105 @@ def test_tools_work_when_called_by_the_gemini_sdk():
     args = {"booking_id": made["booking_id"], "phone": "0905111222"}
     assert _extra_utils.invoke_function_from_dict_args(args, find)["ok"]
     assert _extra_utils.invoke_function_from_dict_args(args, cancel)["ok"]
+
+
+def test_prompt_names_the_reply_language():
+    from app.agent import ReceptionistAgent
+    assert ReceptionistAgent.build_prompt("Khách sạn không nhận thú cưng.", "Can I bring my dog?").endswith(
+        "Reply language: English")
+    assert ReceptionistAgent.build_prompt("ctx", "Mấy giờ nhận phòng?").endswith("Reply language: Vietnamese")
+
+
+# ---------- Confirm before booking / cancelling (checked in Python) ----------
+def _in_turn(fn, *args):
+    """Run a tool as if inside one guest message."""
+    from app.security import current_session, current_turn
+    import uuid as _uuid
+    s, t = current_session.set("chat-1"), current_turn.set(_uuid.uuid4().hex)
+    try:
+        return fn(*args)
+    finally:
+        current_session.reset(s)
+        current_turn.reset(t)
+
+
+def test_booking_needs_a_second_message():
+    from app.security import current_session, current_turn
+    store = BookingStore(":memory:")
+    check, create, find, cancel = make_tools(store)
+    ci, co = _dates()
+    args = ("Nguyen Van An", "0905111222", ci, co, "deluxe")
+    # Message 1: the model calls create_booking, even several times in the same message
+    s, t = current_session.set("chat-1"), current_turn.set("message-1")
+    try:
+        first = create(*args)
+        assert first["needs_confirmation"] and first["total_price_vnd"] == 2 * 1_400_000
+        assert create(*args)["needs_confirmation"]          # same message again: still waits
+    finally:
+        current_session.reset(s)
+        current_turn.reset(t)
+    assert store.conn.execute("SELECT COUNT(*) FROM bookings").fetchone()[0] == 0
+    # Message 2 (the guest said yes): now it is saved
+    done = _in_turn(create, *args)
+    assert done["ok"] and done["booking_id"].startswith("BK-")
+    assert store.conn.execute("SELECT COUNT(*) FROM bookings").fetchone()[0] == 1
+
+
+def test_changed_details_need_a_new_confirmation():
+    _, create, _, _ = make_tools(BookingStore(":memory:"))
+    ci, co = _dates()
+    _in_turn(create, "Nguyen Van An", "0905111222", ci, co, "deluxe")
+    other = _in_turn(create, "Nguyen Van An", "0905111222", ci, co, "family")   # different room
+    assert other["needs_confirmation"]
+
+
+def test_cancel_needs_a_second_message():
+    store, check, find, cancel, code, ci, co = _booked()
+    first = _in_turn(cancel, code, "0905123456")
+    assert first["needs_confirmation"] and store.get(code)["status"] == "confirmed"
+    assert _in_turn(cancel, code, "0905123456")["ok"] and store.get(code)["status"] == "canceled"
+
+
+def test_cancel_after_find_needs_only_one_yes():
+    """Eval found this: find_booking showed the fee, the guest said yes, but cancel_booking
+    asked again. Seeing the fee in find_booking now counts as the proposal."""
+    from app.security import current_session, current_turn
+    store, check, find, cancel, code, ci, co = _booked()
+    s, t = current_session.set("chat-1"), current_turn.set("message-1")
+    try:
+        assert find(code, "0905123456")["ok"]
+        assert cancel(code, "0905123456")["needs_confirmation"]     # same message: still asks
+    finally:
+        current_session.reset(s)
+        current_turn.reset(t)
+    assert store.get(code)["status"] == "confirmed"
+    assert _in_turn(cancel, code, "0905123456")["ok"]                # next message: done
+    assert store.get(code)["status"] == "canceled"
+
+
+# ---------- Embedding cache (saves the free-tier embedding quota) ----------
+def test_kb_embeddings_are_cached_on_disk(tmp_path):
+    from app.rag import cached_embedder
+    calls = []
+
+    def counting_embed(texts, task_type="RETRIEVAL_DOCUMENT"):
+        calls.append((len(texts), task_type))
+        return fake_embed(texts, task_type)
+
+    path = tmp_path / "kb.npz"
+    chunks = load_chunks(config.KB_DIR)
+    first = Retriever(chunks, cached_embedder(counting_embed, path, "m"))
+    assert calls == [(len(chunks), "RETRIEVAL_DOCUMENT")]
+    second = Retriever(chunks, cached_embedder(counting_embed, path, "m"))   # e.g. after a restart
+    assert len(calls) == 1                                                   # no new API call
+    assert np.allclose(first.matrix, second.matrix)
+    second.search("bữa sáng")                                                # questions are not cached
+    assert calls[-1] == (1, "RETRIEVAL_QUERY")
+
+
+def test_broken_cache_file_is_ignored(tmp_path):
+    from app.rag import cached_embedder
+    path = tmp_path / "kb.npz"
+    path.write_bytes(b"not a numpy file")
+    r = Retriever(load_chunks(config.KB_DIR), cached_embedder(fake_embed, path, "m"))
+    assert r.matrix.shape[0] == len(load_chunks(config.KB_DIR))

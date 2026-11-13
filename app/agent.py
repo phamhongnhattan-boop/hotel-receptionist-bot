@@ -2,14 +2,15 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import date
 
 from google.genai import errors, types
 
 from app import config
 from app.rag import Retriever
-from app.security import SessionStore, current_session
-from app.telemetry import start_tool_log, stop_tool_log
+from app.security import SessionStore, current_session, current_turn
+from app.telemetry import guess_language, start_tool_log, stop_tool_log
 
 log = logging.getLogger(__name__)
 
@@ -26,6 +27,9 @@ Rules:
 - For prices and free rooms, ALWAYS call check_availability. Do not guess prices.
 - To book: collect full name, phone, check-in, check-out, room type. Repeat all details and the
   total price, and ask the guest to confirm. Call create_booking only after the guest says yes.
+- create_booking and cancel_booking work in two steps. If a call returns needs_confirmation,
+  nothing was saved yet: show the summary, ask the guest to confirm, and stop. Call the same tool
+  again with the same details only after the guest agrees in their next message.
 - To look up or cancel a booking: ask for the booking code (BK-XXXXXX) AND the phone number used
   to book, then call find_booking. Before cancelling, tell the guest the cancellation fee from
   find_booking and ask them to confirm. Call cancel_booking only after the guest says yes.
@@ -70,8 +74,8 @@ class ReceptionistAgent:
                     hotel=config.HOTEL_NAME, today=date.today().isoformat()),
                 tools=self.tools,  # SDK runs the Python functions automatically
                 temperature=0.3,
-                thinking_config=(types.ThinkingConfig(thinking_budget=config.THINKING_BUDGET)
-                                 if config.THINKING_BUDGET is not None else None),
+                thinking_config=(types.ThinkingConfig(thinking_level=config.THINKING_LEVEL)
+                                 if config.THINKING_LEVEL else None),
             ),
         )
 
@@ -86,7 +90,12 @@ class ReceptionistAgent:
     def build_prompt(context: str, message: str) -> str:
         # Remove tag look-alikes so the guest cannot close the tag and add fake "rules"
         safe = message.replace("<guest_message>", "").replace("</guest_message>", "")
-        return f"CONTEXT:\n{context}\n\n<guest_message>\n{safe}\n</guest_message>"
+        # The CONTEXT is Vietnamese, which pulled some English questions into Vietnamese replies
+        # (eval: "Can I bring my dog?" answered in Vietnamese). Detect the language in Python
+        # and say it explicitly, instead of trusting the model to notice.
+        lang = "Vietnamese" if guess_language(safe) == "vi" else "English"
+        return (f"CONTEXT:\n{context}\n\n<guest_message>\n{safe}\n</guest_message>\n"
+                f"Reply language: {lang}")
 
     def reply(self, session_id: str, message: str) -> dict:
         results = self.retriever.search(message, k=config.TOP_K)
@@ -95,6 +104,7 @@ class ReceptionistAgent:
 
         chat, model_used = self._chat(session_id)
         token = current_session.set(session_id)  # booking tools read this
+        turn_token = current_turn.set(uuid.uuid4().hex)
         tool_log = start_tool_log()               # tools add their names here
         try:
             try:
@@ -110,6 +120,7 @@ class ReceptionistAgent:
                 response = chat.send_message(prompt)
         finally:
             current_session.reset(token)
+            current_turn.reset(turn_token)
             tools_used = stop_tool_log(tool_log)
 
         return {

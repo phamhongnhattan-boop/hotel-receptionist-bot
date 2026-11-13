@@ -130,6 +130,9 @@ class SessionStore(Generic[T]):
 # The session that is talking right now. The Gemini SDK calls the booking tools for us,
 # so the tools read the session from here (contextvars are safe across threads/requests).
 current_session: ContextVar[str | None] = ContextVar("current_session", default=None)
+# A new id for every guest message. Used to make sure "book" and "cancel" are only done in a
+# LATER message than the one where the bot showed the summary (= the guest had a chance to say yes).
+current_turn: ContextVar[str | None] = ContextVar("current_turn", default=None)
 
 
 # ---------- Input checks ----------

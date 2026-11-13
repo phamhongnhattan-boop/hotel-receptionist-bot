@@ -3,7 +3,7 @@
     python -m scripts.eval_scenarios              # 9 scenarios, ~25 Gemini calls (~4 minutes)
     python -m scripts.eval_scenarios --delay 10   # slower, if you hit rate limits (429)
     python -m scripts.eval_scenarios --only cancel_vi
-    $env:THINKING_BUDGET=0; python -m scripts.eval_scenarios   # PowerShell: same test with thinking off
+    $env:THINKING_LEVEL='low'; python -m scripts.eval_scenarios   # PowerShell: same test, less thinking
 
 Single questions (eval_questions.py) cannot test what matters most in a booking bot:
 - does it ask the guest to CONFIRM before it books or cancels?
@@ -90,6 +90,7 @@ def date_mentioned(text: str, iso: str) -> bool:
 def check_lookup(replies, store, code):
     r = replies[-1]
     errs = [] if date_mentioned(r, D1) else ["check-in date not in the reply"]
+    errs += [] if guess_language(r) == "en" else ["English question, reply not in English"]
     return errs + ([] if "deluxe" in r.lower() else ["room type not in the reply"])
 
 
@@ -115,6 +116,11 @@ def check_still_there(replies, store, code):
         [] if store.get(code)["status"] == "confirmed" else ["booking canceled without phone"])
 
 
+def check_book_en(replies, store, code):
+    lang = [] if all(guess_language(r) == "en" for r in replies) else ["a reply was not in English"]
+    return check_book(replies, store, code) + lang
+
+
 def check_language(replies, store, code):
     return [] if guess_language(replies[-1]) == "en" else ["second reply not in English"]
 
@@ -128,7 +134,7 @@ SCENARIOS = [
     Scenario("book_needs_confirmation", "All details in one message: must still ask to confirm",
              [f"Book a deluxe room {D1} to {D2} for Nguyen Van An, phone 0905111222.",
               "Yes, please confirm."],
-             check_book, checks_after_turn={0: no_booking_yet}),
+             check_book_en, checks_after_turn={0: no_booking_yet}),
     Scenario("lookup_en", "Guest checks own booking with code + phone",
              ["I want to check my booking {code}, my phone is 0905 333 444"],
              check_lookup, seeded=True),
@@ -181,7 +187,7 @@ def run(scenario: Scenario, delay: float) -> dict:
         time.sleep(delay)
     errors += scenario.check(replies, store, code)
     from app import config
-    return {"scenario": scenario.name, "thinking_budget": config.THINKING_BUDGET, "goal": scenario.goal, "pass": not errors,
+    return {"scenario": scenario.name, "thinking_level": config.THINKING_LEVEL, "goal": scenario.goal, "pass": not errors,
             "problems": "; ".join(errors), "tools": ",".join(tools),
             "latency_ms": ";".join(f"{x:.0f}" for x in latencies),
             "last_reply": re.sub(r"\s+", " ", replies[-1])[:300]}
@@ -209,7 +215,7 @@ def main():
           f"max {max(lat):.0f} ms ({len(lat)} turns)")
 
     from app import config
-    suffix = "" if config.THINKING_BUDGET is None else f"_thinking{config.THINKING_BUDGET}"
+    suffix = "" if config.THINKING_LEVEL is None else f"_thinking_{config.THINKING_LEVEL.lower()}"
     out = Path(__file__).resolve().parents[1] / "reports" / f"scenario_results{suffix}.csv"
     out.parent.mkdir(exist_ok=True)
     with open(out, "w", newline="", encoding="utf-8-sig") as f:

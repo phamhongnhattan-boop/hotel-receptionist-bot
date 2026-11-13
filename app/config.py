@@ -24,8 +24,12 @@ CHAT_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
 # Used when the main model is overloaded (503) or rate-limited (429) even after retries
 FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-flash-latest")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "gemini-embedding-001")
-# Gemini "thinking" before answering: slower. 0 = off. Empty = model default.
-THINKING_BUDGET = int(os.environ["THINKING_BUDGET"]) if os.getenv("THINKING_BUDGET") else None
+# Knowledge-base vectors saved here, so restarts do not use embedding quota again. Empty = no cache.
+EMBED_CACHE_PATH = Path(os.getenv("EMBED_CACHE_PATH", ROOT / ".cache" / "kb_embeddings.npz")) \
+    if os.getenv("EMBED_CACHE_PATH", "x") else None
+# How much Gemini "thinks" before answering: minimal / low / medium / high. Empty = model default.
+# (thinking_budget=0 is refused by the current flash-lite model with HTTP 400.)
+THINKING_LEVEL = (os.getenv("THINKING_LEVEL") or "").upper() or None
 
 TOP_K = int(os.getenv("TOP_K", "3"))
 HOTEL_NAME = os.getenv("HOTEL_NAME", "Son Tra Demo Hotel")

@@ -7,7 +7,7 @@ Son Tra Demo Hotel là khách sạn 4 sao giả lập tại quận Sơn Trà, Đ
 - Standard: 25 m², 1 giường đôi hoặc 2 giường đơn, tối đa 2 người lớn, không có ban công.
 - Deluxe: 32 m², 1 giường king, ban công hướng biển, tối đa 2 người lớn và 1 trẻ em.
 - Family: 45 m², 2 giường đôi, tối đa 4 người lớn, có bồn tắm.
-Giá phòng thay đổi theo ngày. Lễ tân sẽ tra giá chính xác theo ngày khách chọn.
+Giá phòng mỗi đêm lấy từ hệ thống đặt phòng theo loại phòng và ngày khách chọn; lễ tân ảo luôn tra giá qua hệ thống, không báo giá ước lượng.
 
 ## Giờ nhận phòng và trả phòng
 Nhận phòng (check-in) từ 14:00. Trả phòng (check-out) trước 12:00.

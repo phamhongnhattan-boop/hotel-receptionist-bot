@@ -29,10 +29,11 @@ def build_agent(store=None, client=None):
     from app.agent import ReceptionistAgent
     from app.booking import BookingStore, make_tools
     from app.llm import get_client, make_embedder
-    from app.rag import Retriever, load_chunks
+    from app.rag import Retriever, cached_embedder, load_chunks
 
     client = client or get_client()
-    retriever = Retriever(load_chunks(config.KB_DIR), make_embedder(client))
+    embed = cached_embedder(make_embedder(client), config.EMBED_CACHE_PATH, config.EMBED_MODEL)
+    retriever = Retriever(load_chunks(config.KB_DIR), embed)
     store = store or BookingStore(config.DB_PATH)
     return ReceptionistAgent(client, retriever, make_tools(store))
 

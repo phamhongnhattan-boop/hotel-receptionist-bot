@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Callable
 
 from app import config
-from app.security import current_session, is_valid_name, mask_phone, normalize_phone, same_phone
+from app.security import current_session, current_turn, is_valid_name, mask_phone, normalize_phone, same_phone
 from app.telemetry import record_tool
 
 log = logging.getLogger(__name__)
@@ -115,10 +115,37 @@ def make_tools(store: BookingStore, max_per_session: int = config.MAX_BOOKINGS_P
     The tools therefore check everything again in Python and never trust the model:
     valid name/phone, valid dates, free rooms, a limit on bookings per chat session, and for
     lookup/cancel the booking code AND the phone used for the booking, with a limit on wrong tries.
+
+    Booking and cancelling also need two calls in two different guest messages: the first call
+    only returns a summary (needs_confirmation), so the model cannot book or cancel in the same
+    turn where it should be asking "do you confirm?". This is checked here, not left to the prompt.
     """
     bookings_per_session: Counter[str] = Counter()
     failed_lookups: Counter[str] = Counter()
+    pending: dict[tuple, str] = {}   # action key -> id of the guest message that proposed it
     lock = threading.Lock()  # check-then-write must not run twice at the same time
+
+    def _needs_confirmation(key: tuple) -> bool:
+        """True = first time (or same message): remember it and ask the guest. False = go ahead.
+        Outside a chat (no current_turn, e.g. direct calls in tests/scripts) there is no guest to ask."""
+        turn = current_turn.get()
+        if turn is None:
+            return False
+        proposed = pending.get(key)
+        if proposed is not None and proposed != turn:
+            del pending[key]
+            return False
+        _propose(key)
+        return True
+
+    def _propose(key: tuple) -> None:
+        """Remember that the guest was shown this action (and its price/fee) in this message."""
+        turn = current_turn.get()
+        if turn is None:
+            return
+        pending[key] = turn
+        while len(pending) > 1000:          # keep memory bounded
+            pending.pop(next(iter(pending)))
 
     def _availability(check_in: str, check_out: str, room_type: str) -> dict:
         room_type = (room_type or "").lower().strip()
@@ -146,7 +173,8 @@ def make_tools(store: BookingStore, max_per_session: int = config.MAX_BOOKINGS_P
         return _availability(check_in, check_out, room_type)
 
     def create_booking(guest_name: str, phone: str, check_in: str, check_out: str, room_type: str) -> dict:
-        """Create a booking. Only call this AFTER the guest has confirmed all details.
+        """Create a booking. The first call only returns a summary (needs_confirmation);
+        call again with the same details in a later message, after the guest confirms.
 
         Args:
             guest_name: Full name of the guest.
@@ -172,6 +200,13 @@ def make_tools(store: BookingStore, max_per_session: int = config.MAX_BOOKINGS_P
                 return avail
             if avail["rooms_available"] < 1:
                 return {"ok": False, "error": "No rooms of this type left for these dates."}
+            key = (session, "book", guest_name.strip().lower(), clean_phone, avail["room_type"], check_in, check_out)
+            if _needs_confirmation(key):
+                return {"ok": False, "needs_confirmation": True, "guest_name": guest_name.strip(),
+                        "phone": mask_phone(clean_phone), **{k: v for k, v in avail.items() if k != "ok"},
+                        "next_step": "Nothing is booked yet. Show these details and the total price, ask the "
+                                     "guest to confirm, then stop. Call create_booking again with the same "
+                                     "details only after the guest says yes."}
             booking_id = store.add(guest_name.strip(), clean_phone, avail["room_type"],
                                    date.fromisoformat(check_in), date.fromisoformat(check_out))
             bookings_per_session[session] += 1
@@ -213,11 +248,15 @@ def make_tools(store: BookingStore, max_per_session: int = config.MAX_BOOKINGS_P
         }
         if row["status"] == "confirmed":
             out["cancellation_fee_vnd_if_canceled_now"] = cancellation_fee(row["room_type"], ci, now())
+            # The guest now sees the booking and the fee: if they say "yes, cancel" in their next
+            # message, cancel_booking can go ahead without asking a second time.
+            with lock:
+                _propose((current_session.get() or "no-session", "cancel", row["id"]))
         return out
 
     def cancel_booking(booking_id: str, phone: str) -> dict:
-        """Cancel the guest's booking. Call find_booking first, tell the guest the cancellation
-        fee, and call this only AFTER the guest confirms they want to cancel.
+        """Cancel the guest's booking. The first call only returns the fee (needs_confirmation);
+        call again in a later message, after the guest confirms they want to cancel.
 
         Args:
             booking_id: Booking code, for example "BK-1A2B3C".
@@ -234,6 +273,11 @@ def make_tools(store: BookingStore, max_per_session: int = config.MAX_BOOKINGS_P
             if ci < now().date():
                 return {"ok": False, "error": "Past bookings cannot be canceled online. Please contact staff."}
             fee = cancellation_fee(row["room_type"], ci, now())
+            if _needs_confirmation((current_session.get() or "no-session", "cancel", row["id"])):
+                return {"ok": False, "needs_confirmation": True, "booking_id": row["id"],
+                        "check_in": row["check_in"], "cancellation_fee_vnd": fee,
+                        "next_step": "Nothing is canceled yet. Tell the guest the fee, ask them to confirm, "
+                                     "then stop. Call cancel_booking again only after the guest says yes."}
             store.cancel(row["id"])
         log.info("booking %s canceled, fee=%s", row["id"], fee)
         return {"ok": True, "booking_id": row["id"], "status": "canceled", "cancellation_fee_vnd": fee}
